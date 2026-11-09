@@ -42,6 +42,9 @@ func (e *Engine) highlightLine(line []rune, selection core.Selection) string {
 	// the comment-begin option, so compile it lazily and reuse it until that
 	// option changes, rather than recompiling on every refresh.
 	comment := strings.Trim(e.opts.GetString("comment-begin"), "\"")
+	if comment == "" {
+		return highlighted + color.Reset
+	}
 	if comment != e.commentToken || e.commentRegex == nil {
 		e.commentToken = comment
 		e.commentRegex, _ = regexp.Compile(fmt.Sprintf(`(^|\s)%s.*`, comment))

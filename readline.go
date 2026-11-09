@@ -69,7 +69,9 @@ func (rl *Shell) Readline() (string, error) {
 	// Prompts and cursor styles
 	rl.Display.PrintPrimaryPrompt()
 	defer rl.Display.RefreshTransient()
-	defer term.WriteString(keymap.CursorStyle("default").String())
+	if !rl.Config.GetBool("preserve-cursor") {
+		defer term.WriteString(keymap.CursorStyle("default").String())
+	}
 
 	rl.init()
 
@@ -102,6 +104,12 @@ func (rl *Shell) Readline() (string, error) {
 		// Since we always update helpers after being asked to read
 		// for user input again, we do it before actually reading it.
 		rl.Display.Refresh()
+
+		if rl.BeforeRead != nil {
+			if err := rl.BeforeRead(); err != nil {
+				return string(*rl.line), err
+			}
+		}
 
 		// Block and wait for available user input keys.
 		// These might be read on stdin, or already available because

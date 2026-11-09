@@ -22,6 +22,7 @@ package display_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -73,6 +74,14 @@ func runPTYChild() {
 	}
 
 	rl := readline.NewShell()
+	if os.Getenv("READLINE_PTY_BOBO") == "1" {
+		rl.Config.Set("cache-cursor-position", true)
+		rl.Config.Set("preserve-cursor", true)
+		rl.Config.Set("comment-begin", "")
+	}
+	if os.Getenv("READLINE_PTY_BEFORE_READ_ERROR") == "1" {
+		rl.BeforeRead = func() error { return errors.New("before-read stop") }
+	}
 
 	if os.Getenv(noProbeEnvVar) == "1" {
 		rl.Config.Set("cursor-position-probe", false)
@@ -185,7 +194,8 @@ type console struct {
 
 	mu         sync.Mutex // guards term (writer + reads), probeCount and DSR replies
 	done       chan struct{}
-	probeCount int // number of "ESC[6n" cursor-position queries observed
+	probeCount int          // number of "ESC[6n" cursor-position queries observed
+	output     bytes.Buffer // raw output, guarded by mu
 
 	// probeReply, if non-nil, computes the DSR reply bytes for an "ESC[6n"
 	// cursor-position query, letting tests simulate a misbehaving terminal.
@@ -227,7 +237,9 @@ type consoleConfig struct {
 	autocomplete bool
 	// probeReply, if non-nil, computes the DSR reply for an "ESC[6n" query,
 	// letting tests simulate a terminal that reports a wrong cursor position.
-	probeReply func(vt10x.Cursor) string
+	probeReply      func(vt10x.Cursor) string
+	bobo            bool
+	beforeReadError bool
 }
 
 // newConsole spawns the child shell under a PTY of the given size, with the
@@ -254,6 +266,12 @@ func startConsole(t *testing.T, cfg consoleConfig) *console {
 
 	if cfg.noProbe {
 		cmd.Env = append(cmd.Env, noProbeEnvVar+"=1")
+	}
+	if cfg.bobo {
+		cmd.Env = append(cmd.Env, "READLINE_PTY_BOBO=1")
+	}
+	if cfg.beforeReadError {
+		cmd.Env = append(cmd.Env, "READLINE_PTY_BEFORE_READ_ERROR=1")
 	}
 
 	if cfg.hintProvider {
@@ -318,6 +336,7 @@ func (c *console) readLoop() {
 
 			c.mu.Lock()
 			_, _ = c.term.Write(chunk)
+			_, _ = c.output.Write(chunk)
 			c.mu.Unlock()
 
 			// Respond to "ESC[6n" cursor-position reports. The prompt bytes

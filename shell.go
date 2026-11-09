@@ -57,6 +57,11 @@ type Shell struct {
 	// Once enabled, set to nil to disable again.
 	SyntaxHighlighter func(line []rune) string
 
+	// BeforeRead runs on the editor goroutine after each redraw, before waiting
+	// for keys. Background tasks may request it with Keys.RequestRefresh, but
+	// must not mutate editor state themselves. Returning an error ends Readline.
+	BeforeRead func() error
+
 	// PasteTransformer, when set, rewrites bracketed paste payloads before
 	// they are inserted into the input buffer.
 	PasteTransformer func(text string) string
@@ -155,7 +160,7 @@ func (rl *Shell) Printf(msg string, args ...any) (n int, err error) {
 	n, err = fmt.Printf(msg+"\n", args...)
 
 	// Redisplay the prompt, input line and active helpers.
-	rl.Prompt.PrimaryPrint()
+	rl.Display.PrintPrimaryPrompt()
 	rl.Display.Refresh()
 
 	return
@@ -175,7 +180,7 @@ func (rl *Shell) PrintTransientf(msg string, args ...any) (n int, err error) {
 	n, err = fmt.Printf(msg+"\n", args...)
 
 	// Redisplay the prompt, input line and active helpers.
-	rl.Prompt.PrimaryPrint()
+	rl.Display.PrintPrimaryPrompt()
 	rl.Display.Refresh()
 
 	return

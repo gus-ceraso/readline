@@ -25,7 +25,7 @@ func (k *Keys) GetCursorPos() (x, y int) {
 		return -1, -1
 	}
 
-	var cursor []byte
+	var cursor, pending []byte
 	var match [][]string
 
 	// Flush any buffered frame output first: the cursor position we are about
@@ -61,23 +61,19 @@ func (k *Keys) GetCursorPos() (x, y int) {
 			return disable()
 		}
 
-		// Attempt to locate cursor response in it.
-		match = rxRcvCursorPos.FindAllStringSubmatch(string(cursor), 1)
-
-		// If there is something but not cursor answer, its user input.
-		if len(match) == 0 && len(cursor) > 0 {
-			k.mutex.RLock()
-			k.buf = append(k.buf, cursor...)
-			k.mutex.RUnlock()
-
+		// A report may be split across reads or share a read with typeahead.
+		// Keep the partial report together and return every non-report byte to
+		// the input queue, including bytes after the report.
+		pending = append(pending, cursor...)
+		match = rxRcvCursorPos.FindAllStringSubmatch(string(pending), 1)
+		if len(match) == 0 {
 			continue
 		}
-
-		// And if empty, then we should abort.
-		if len(match) == 0 {
-			return disable()
-		}
-
+		location := rxRcvCursorPos.FindIndex(pending)
+		k.mutex.Lock()
+		k.buf = append(k.buf, pending[:location[0]]...)
+		k.buf = append(k.buf, pending[location[1]:]...)
+		k.mutex.Unlock()
 		break
 	}
 

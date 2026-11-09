@@ -17,6 +17,7 @@ func WatchResize(eng *Engine) chan<- bool {
 	signal.Notify(resizeChannel, syscall.SIGWINCH)
 
 	go func() {
+		defer signal.Stop(resizeChannel)
 		for {
 			select {
 			case <-resizeChannel:

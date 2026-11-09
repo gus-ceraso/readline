@@ -52,6 +52,9 @@ var defaultCursors = map[Mode]CursorStyle{
 // PrintCursor prints the cursor for the given keymap mode,
 // either default value or the one specified in inputrc file.
 func (m *Engine) PrintCursor(keymap Mode) {
+	if m.config.GetBool("preserve-cursor") {
+		return
+	}
 	var cursor CursorStyle
 
 	// Check for a configured cursor in .inputrc file.

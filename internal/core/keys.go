@@ -383,6 +383,14 @@ func (k *Keys) Caller() (keys []rune) {
 	return k.matched
 }
 
+// QueueInput appends raw typeahead on the editor goroutine. Unlike Feed, it
+// preserves partial UTF-8 bytes and their order relative to subsequent reads.
+func (k *Keys) QueueInput(input []byte) {
+	k.mutex.Lock()
+	defer k.mutex.Unlock()
+	k.buf = append(k.buf, input...)
+}
+
 // Feed can be used to directly add keys to the stack.
 // If begin is true, the keys are added on the top of
 // the stack, otherwise they are being appended to it.

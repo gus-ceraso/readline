@@ -31,6 +31,8 @@ type Engine struct {
 	hintRows       int
 	compRows       int
 	primaryPrinted bool
+	positionKnown  bool
+	width, height  int
 
 	// commentRegex is the compiled comment-highlight pattern. It is rebuilt
 	// only when the comment-begin option changes, not on every refresh.
@@ -115,6 +117,7 @@ func (e *Engine) coordinatesLine(suggested bool) *core.Line {
 // There are relatively few cases where you want to use this.
 // It is currently only used when using clear-screen commands.
 func (e *Engine) PrintPrimaryPrompt() {
+	e.positionKnown = false
 	e.prompt.PrimaryPrint()
 	e.primaryPrinted = true
 }
@@ -222,14 +225,20 @@ func (e *Engine) computeCoordinates(suggested bool) {
 	// constrained CI) don't reliably answer the "ESC[6n" query, so consumers can
 	// turn the cursor-position-probe option off; we then fall back to a position
 	// derived from the printed prompt width.
-	if e.opts.GetBool("cursor-position-probe") {
-		e.startCols, e.startRows = e.keys.GetCursorPos()
-	} else {
-		e.startCols, e.startRows = -1, -1
-	}
-
-	if e.startCols > 0 {
-		e.startCols--
+	// The renderer already tracks its own scrolling. With caching enabled,
+	// only a new prompt or terminal resize needs an absolute-position query;
+	// ordinary edits stay buffered as a single frame instead of stopping
+	// halfway through the repaint to wait for a DSR reply.
+	if !e.opts.GetBool("cache-cursor-position") || !e.positionKnown {
+		if e.opts.GetBool("cursor-position-probe") {
+			e.startCols, e.startRows = e.keys.GetCursorPos()
+		} else {
+			e.startCols, e.startRows = -1, -1
+		}
+		if e.startCols > 0 {
+			e.startCols--
+		}
+		e.positionKnown = e.startRows > 0
 	}
 
 	// Cursor column might be misleading if invalid (negative), or unavailable

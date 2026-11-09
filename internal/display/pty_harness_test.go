@@ -78,6 +78,9 @@ func runPTYChild() {
 		rl.Config.Set("cache-cursor-position", true)
 		rl.Config.Set("preserve-cursor", true)
 		rl.Config.Set("comment-begin", "")
+		rl.Config.Set("multiline-column-custom", "> ")
+		rl.Config.Set("enable-bracketed-paste", true)
+		rl.Prompt.Secondary(func() string { return "> " })
 	}
 	if os.Getenv("READLINE_PTY_BEFORE_READ_ERROR") == "1" {
 		rl.BeforeRead = func() error { return errors.New("before-read stop") }

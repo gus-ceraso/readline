@@ -27,6 +27,9 @@ rewriting the library's internal imports and consumers' imports.
   error ends `Readline`.
 - `Printf` and `PrintTransientf` invalidate the cached origin when they print a
   fresh prompt.
+- `multiline-column-custom` is honored on every logical continuation line.
+  Indicator placement accounts for wrapped rows, so a custom `> ` marker does
+  not overwrite text on soft-wrapped lines.
 - Cursor-position reads preserve typeahead before and after a cursor report,
   including reports split across reads.
 - `Keys.QueueInput` appends raw bytes on the editor goroutine, so cooked terminal
@@ -38,7 +41,8 @@ rewriting the library's internal imports and consumers' imports.
 
 Run `go test -race ./...` and `go vet ./...` in this repository. Regression tests
 cover disabled comment highlighting, raw input queueing, cursor preservation,
-position caching, and the editor-thread callback, alongside upstream's tests.
+position caching, custom multiline markers after wrapping, and the editor-thread
+callback, alongside upstream's tests.
 
 Bobo's own tests additionally exercise subprocesses, real Linux PTYs, and a
 terminal emulator, including terminal resize, DSR/typeahead handling, and cooked

@@ -44,6 +44,29 @@ func TestCachedCursorOriginAndPreservedCursor(t *testing.T) {
 	}
 }
 
+func TestCustomMultilineColumnSkipsWrappedRows(t *testing.T) {
+	for _, prefill := range []int{0, 9} {
+		t.Run(fmt.Sprint(prefill), func(t *testing.T) {
+			c := startConsole(t, consoleConfig{
+				prompt: "> ", cols: 40, rows: 10, prefill: prefill, bobo: true,
+			})
+			c.waitForScreen("> ")
+			text := strings.Repeat("x", 48) + "\nsecond\nthird"
+			c.send("\x1b[200~" + text + "\x1b[201~")
+			want := "> " + strings.Repeat("x", 38) + "\n" + strings.Repeat("x", 10) + "\n> second\n> third"
+			c.waitUntil(func(screen string) bool {
+				rows := strings.Split(screen, "\n")
+				for i := range rows {
+					rows[i] = strings.TrimRight(rows[i], " ")
+				}
+				return strings.Contains(strings.Join(rows, "\n"), want)
+			})
+			c.send("\r")
+			c.waitForScreen("third]")
+		})
+	}
+}
+
 func TestBeforeReadCanStopWithoutAKey(t *testing.T) {
 	c := startConsole(t, consoleConfig{
 		prompt: "> ", cols: 60, rows: 10, bobo: true, beforeReadError: true,

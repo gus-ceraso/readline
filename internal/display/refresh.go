@@ -310,55 +310,51 @@ func (e *Engine) displayLine() {
 }
 
 func (e *Engine) renderMultilineIndicators() {
-	// Check if we have multiple lines to manage.
-	if e.line.Lines() == 0 {
+	lines := e.line.Lines()
+	if lines == 0 {
+		return
+	}
+	custom := e.opts.GetString("multiline-column-custom")
+	numbered := e.opts.GetBool("multiline-column-numbered")
+	columns := e.opts.GetBool("multiline-column") || numbered || custom != ""
+	if !columns && e.prompt.LastUsed() != 0 {
 		return
 	}
 
-	// 1. Determine if we need to print columns.
-	columns := e.opts.GetBool("multiline-column") ||
-		e.opts.GetBool("multiline-column-numbered") ||
-		e.opts.GetString("multiline-column-custom") != ""
-	promptEmpty := e.prompt.LastUsed() == 0
-
-	// If no columns are requested and the prompt is not empty, we have nothing to do.
-	if !columns && !promptEmpty {
-		return
-	}
-
-	// 2. Move to the top of the input area (first line).
 	term.MoveCursorUp(e.lineRows)
 	term.MoveCursorBackwards(term.GetWidth())
 
-	// 3. Print the indicators for subsequent lines (1..N).
-	printedLines := 0
-	numbered := e.opts.GetBool("multiline-column-numbered")
-
-	// Indicators
-	pipe := ui.DefaultMultilineColumn
-
-	for i := 1; i <= e.line.Lines(); i++ {
-		term.WriteString("\n")
+	// Indicators belong to logical line starts, not to each terminal row.
+	// Account for visual wraps using the same geometry as CoordinatesLine.
+	start, logical, row := 0, 0, 0
+	for i, r := range *e.line {
+		if r != '\n' {
+			continue
+		}
+		_, wraps := strutil.LineSpan((*e.line)[start:i], 0, e.startCols)
+		down := wraps + 1
+		term.MoveCursorDown(down)
+		term.MoveCursorBackwards(term.GetWidth())
+		row += down
+		logical++
+		start = i + 1
 
 		switch {
 		case numbered:
-			term.Printf(color.FgBlackBright+"%d"+color.Reset+" ", i+1)
-		case i == e.line.Lines():
+			term.Printf(color.FgBlackBright+"%d"+color.Reset+" ", logical+1)
+		case custom != "":
+			term.WriteString(custom)
+		case logical == lines:
 			e.prompt.SecondaryPrint()
 		default:
-			term.WriteString(pipe)
+			term.WriteString(ui.DefaultMultilineColumn)
 		}
-
-		printedLines++
 	}
 
-	// 4. Return cursor to the bottom of the input area.
-	correction := e.lineRows - printedLines
-	if correction > 0 {
+	// The last logical line can itself span several terminal rows.
+	if correction := e.lineRows - row; correction > 0 {
 		term.MoveCursorDown(correction)
 	}
-
-	// 5. Restore horizontal position to the end of the input text.
 	term.MoveCursorBackwards(term.GetWidth())
 	term.MoveCursorForwards(e.lineCol)
 }

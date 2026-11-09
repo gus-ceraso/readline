@@ -14,6 +14,11 @@ rewriting the library's internal imports and consumers' imports.
 
 - An empty `comment-begin` disables comment highlighting instead of matching
   every input line as a comment.
+- Alt+Backspace is bound to `backward-kill-word` for both ESC DEL and ESC Ctrl+H.
+  Literal key bindings take precedence over aliases that normalize to the same
+  bytes, preventing a legacy `self-insert` alias from overriding ESC Ctrl+H.
+- Word token offsets and movements count Unicode runes rather than UTF-8 bytes,
+  so deleting a non-ASCII word does not also erase preceding text.
 - The opt-in `preserve-cursor` setting suppresses cursor-style changes and the
   reset on return from `Readline`, leaving the terminal's cursor settings alone.
 - The opt-in `cache-cursor-position` setting reuses the absolute input origin

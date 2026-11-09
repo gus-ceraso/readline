@@ -177,6 +177,9 @@ func (m *Engine) dispatchKeys(binds map[string]inputrc.Bind) (bind inputrc.Bind,
 }
 
 func (m *Engine) matchBind(keys []byte, binds map[string]inputrc.Bind) (inputrc.Bind, []inputrc.Bind) {
+	// A literal binding must beat a different sequence that happens to
+	// normalize to the same bytes (for example U+0088 -> ESC Ctrl+H).
+	literal, exact := binds[string(keys)]
 	var match inputrc.Bind
 	var prefixed []inputrc.Bind
 
@@ -209,6 +212,9 @@ func (m *Engine) matchBind(keys []byte, binds map[string]inputrc.Bind) (inputrc.
 		}
 	}
 
+	if exact {
+		match = literal
+	}
 	return match, prefixed
 }
 

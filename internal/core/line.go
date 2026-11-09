@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/reeflective/readline/inputrc"
 	"github.com/reeflective/readline/internal/color"
@@ -369,7 +370,7 @@ func (l *Line) Forward(tokenizer Tokenizer, pos int) (adjust int) {
 	case index+1 == len(split):
 		adjust = l.Len() - pos
 	default:
-		adjust = len(split[index]) - pos
+		adjust = utf8.RuneCountInString(split[index]) - pos
 	}
 
 	return
@@ -386,14 +387,14 @@ func (l *Line) ForwardEnd(tokenizer Tokenizer, pos int) (adjust int) {
 	word := strings.TrimRightFunc(split[index], unicode.IsSpace)
 
 	switch {
-	case index == len(split)-1 && pos >= len(word)-1:
+	case index == len(split)-1 && pos >= utf8.RuneCountInString(word)-1:
 		return
-	case pos >= len(word)-1:
+	case pos >= utf8.RuneCountInString(word)-1:
 		word = strings.TrimRightFunc(split[index+1], unicode.IsSpace)
-		adjust = len(split[index]) - pos
-		adjust += len(word) - 1
+		adjust = utf8.RuneCountInString(split[index]) - pos
+		adjust += utf8.RuneCountInString(word) - 1
 	default:
-		adjust = len(word) - pos - 1
+		adjust = utf8.RuneCountInString(word) - pos - 1
 	}
 
 	return
@@ -410,7 +411,7 @@ func (l *Line) Backward(tokenizer Tokenizer, pos int) (adjust int) {
 	case index == 0 && pos == 0:
 		return
 	case pos == 0:
-		adjust = len(split[index-1])
+		adjust = utf8.RuneCountInString(split[index-1])
 	default:
 		adjust = pos
 	}
@@ -473,14 +474,14 @@ func (l *Line) Tokenize(cpos int) ([]string, int, int) {
 		// of the line, where rl.pos = linePos + 1, so...
 		if i == cpos {
 			index = len(split) - 1
-			pos = len(split[index]) - 1
+			pos = utf8.RuneCountInString(split[index]) - 1
 		}
 	}
 
 	// ... so we adjust here for this case.
 	if cpos == len(line) {
 		index = len(split) - 1
-		pos = len(split[index])
+		pos = utf8.RuneCountInString(split[index])
 	}
 
 	return split, index, pos
@@ -532,14 +533,14 @@ func (l *Line) TokenizeSpace(cpos int) ([]string, int, int) {
 		// of the line, where rl.pos = linePos + 1, so...
 		if i == cpos {
 			index = len(split) - 1
-			pos = len(split[index]) - 1
+			pos = utf8.RuneCountInString(split[index]) - 1
 		}
 	}
 
 	// ... so we adjust here for this case.
 	if cpos == len(line) {
 		index = len(split) - 1
-		pos = len(split[index])
+		pos = utf8.RuneCountInString(split[index])
 	}
 
 	return split, index, pos

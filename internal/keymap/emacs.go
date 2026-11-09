@@ -7,6 +7,9 @@ var unescape = inputrc.Unescape
 // emacsKeys are the default keymaps in Emacs mode.
 var emacsKeys = map[string]inputrc.Bind{
 	unescape(`\C-D`): {Action: "end-of-file"},
+	// Terminals send Alt+Backspace as ESC followed by DEL or Ctrl+H.
+	"\x1b\x7f": {Action: "backward-kill-word"},
+	"\x1b\x08": {Action: "backward-kill-word"},
 	// NOTE: \C-h is deliberately NOT overridden here. Many terminals send ^H
 	// for Backspace, and the GNU default (inputrc DefaultBinds) binds \C-h to
 	// backward-delete-char. Binding it to backward-kill-word made Backspace

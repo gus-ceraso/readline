@@ -67,6 +67,17 @@ func TestCustomMultilineColumnSkipsWrappedRows(t *testing.T) {
 	}
 }
 
+func TestAltBackspaceDeletesPreviousWord(t *testing.T) {
+	for _, key := range []string{"\x1b\x7f", "\x1b\x08"} {
+		t.Run(fmt.Sprintf("%x", key), func(t *testing.T) {
+			c := startConsole(t, consoleConfig{prompt: "> ", cols: 60, rows: 10, bobo: true})
+			c.waitForScreen("> ")
+			c.send("one two" + key + "three\r")
+			c.waitForScreen("[LINE:one three]")
+		})
+	}
+}
+
 func TestBeforeReadCanStopWithoutAKey(t *testing.T) {
 	c := startConsole(t, consoleConfig{
 		prompt: "> ", cols: 60, rows: 10, bobo: true, beforeReadError: true,

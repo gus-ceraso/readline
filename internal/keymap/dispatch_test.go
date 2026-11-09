@@ -50,6 +50,22 @@ func collisions(binds map[string]inputrc.Bind) map[string][]inputrc.Bind {
 	return out
 }
 
+func TestLiteralBindingBeatsNormalizedAlias(t *testing.T) {
+	eng := &Engine{}
+	binds := map[string]inputrc.Bind{
+		"\x1b\x08":  {Action: "backward-kill-word"},
+		"\u0088":    {Action: "self-insert"},
+		"\x1b\x08x": {Action: "longer-sequence"},
+	}
+	got, prefixed := eng.matchBind([]byte("\x1b\x08"), binds)
+	if got.Action != "backward-kill-word" {
+		t.Fatalf("normalized alias overrode literal binding: %+v", got)
+	}
+	if len(prefixed) != 1 || prefixed[0].Action != "longer-sequence" {
+		t.Fatalf("literal binding lost longer sequence prefix: %+v", prefixed)
+	}
+}
+
 // TestMatchBindSortIsLoadBearing documents why matchBind must impose a
 // deterministic order: the default keymaps DO contain sequences that collapse
 // (via ConvertMeta) to the same key bytes with different actions, e.g. ESC-prefixed

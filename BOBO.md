@@ -26,6 +26,14 @@ rewriting the library's internal imports and consumers' imports.
   primary prompt or changed terminal dimensions invalidates the cache. Normal
   keystrokes therefore repaint in one buffered frame without a mid-frame DSR
   query. The default behavior for other consumers is unchanged.
+- `Shell.ReadlineContext` supports cancellation throughout Unix terminal reads,
+  including cursor queries and unfinished bracketed paste, restoring terminal
+  state before returning. Cursor queries also have a bounded timeout and retain
+  typeahead if a terminal does not answer.
+- Incomplete UTF-8 input waits for subsequent reads, including bytes supplied
+  through `Keys.QueueInput`. Meta conversion runs only on complete leading
+  runes, not arbitrary read chunks. With `output-meta=true`, insertion retains
+  combining runes and moves the cursor by rune indexes rather than cell widths.
 - `Shell.BeforeRead` runs on the editor goroutine after each redraw, before
   waiting for keys. `Keys.RequestRefresh` wakes this callback safely, allowing
   signal handling and shutdown without concurrent editor access. Returning an

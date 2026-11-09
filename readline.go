@@ -19,6 +19,7 @@
 package readline
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -50,6 +51,21 @@ var ErrInterrupt = errors.New(os.Interrupt.String())
 // and it is up to the caller to decide what to do with the line result.
 // When the error is not nil, the returned line is not written to history.
 func (rl *Shell) Readline() (string, error) {
+	return rl.ReadlineContext(context.Background())
+}
+
+// ReadlineContext is Readline with context cancellation. On Unix this covers
+// all input reads, including cursor reports, incomplete UTF-8, and unfinished
+// bracketed paste. Terminal and paste state are restored before it returns.
+func (rl *Shell) ReadlineContext(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	rl.Keys.SetContext(ctx)
+	rl.Keys.InitWake()
+	defer rl.Keys.CloseWake()
+	stopWake := context.AfterFunc(ctx, rl.Keys.RequestRefresh)
+	defer stopWake()
 	descriptor := int(os.Stdin.Fd())
 
 	if term.IsTerminal(descriptor) {
@@ -79,13 +95,10 @@ func (rl *Shell) Readline() (string, error) {
 	resize := display.WatchResize(rl.Display)
 	defer close(resize)
 
-	// Async UI refresh: let background goroutines wake an idle loop (e.g. to
-	// show a transient hint pushed from another goroutine) via the input wake
-	// primitive. Torn down when the call returns.
-	rl.Keys.InitWake()
-	defer rl.Keys.CloseWake()
-
 	for {
+		if err := ctx.Err(); err != nil {
+			return string(*rl.line), err
+		}
 		// Whether or not the command is resolved, let the macro
 		// engine record the keys if currently recording a macro.
 		// This is done before flushing all used keys, on purpose.

@@ -1,16 +1,17 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
 	"regexp"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/rivo/uniseg"
 
 	"github.com/reeflective/readline/inputrc"
-	"github.com/reeflective/readline/internal/strutil"
 )
 
 const (
@@ -45,10 +46,12 @@ type Keys struct {
 	wakeW     int        // Write end of the async-refresh wake pipe.
 	wakeReady bool       // Whether the wake pipe is initialized and usable.
 
-	eof     bool            // EOF has been reached.
-	readErr error           // First non-EOF, non-wake input failure (e.g. a revoked tty).
-	cfg     *inputrc.Config // Configuration file used for meta key settings
-	mutex   sync.RWMutex    // Concurrency safety
+	eof               bool            // EOF has been reached.
+	readErr           error           // First non-EOF, non-wake input failure (e.g. a revoked tty).
+	cfg               *inputrc.Config // Configuration file used for meta key settings
+	ctx               context.Context // Set on the editor goroutine before reading.
+	cursorUnsupported bool            // Stop retrying queries after an unanswered report.
+	mutex             sync.RWMutex    // Concurrency safety
 }
 
 // WaitAvailableKeys waits until an input key is either read from standard input,
@@ -56,12 +59,13 @@ type Keys struct {
 func WaitAvailableKeys(keys *Keys, cfg *inputrc.Config) {
 	keys.cfg = cfg
 
-	if len(keys.buf) > 0 && !keys.mustWait {
+	if len(keys.buf) > 0 && !keys.mustWait && utf8.FullRune(keys.buf) {
+		keys.convertMetaPrefix()
 		return
 	}
 
-	// The macro engine might have fed some keys
-	if len(keys.macroKeys) > 0 {
+	// An incomplete raw rune precedes any macro input and needs more bytes.
+	if len(keys.buf) == 0 && len(keys.macroKeys) > 0 {
 		return
 	}
 
@@ -114,29 +118,62 @@ func WaitAvailableKeys(keys *Keys, cfg *inputrc.Config) {
 			continue
 
 		default:
-			// When convert-meta is on, any meta-prefixed bind should
-			// be stripped and replaced with an escape meta instead.
-			if keys.cfg != nil && keys.cfg.GetBool("convert-meta") {
-				keyBuf = []byte(strutil.ConvertMeta([]rune(string(keyBuf))))
-			}
-
-			keys.mutex.RLock()
+			keys.mutex.Lock()
 			keys.buf = append(keys.buf, keyBuf...)
-			keys.mutex.RUnlock()
+			keys.mutex.Unlock()
 		}
 
+		// Decode only after a complete rune is buffered. In particular, never
+		// convert an individual Read chunk to a string and lose a UTF-8 prefix.
+		if !utf8.FullRune(keys.buf) {
+			continue
+		}
+		keys.convertMetaPrefix()
 		return
 	}
 }
 
-// Empty reports whether there are no keys available to dispatch: neither
-// buffered input keys nor macro-fed keys. The main loop uses this to detect a
-// bare async-refresh wake (which returns from WaitAvailableKeys with no keys).
+// SetContext prepares a new read on the editor goroutine, retaining typeahead.
+func (k *Keys) SetContext(ctx context.Context) {
+	k.mutex.Lock()
+	defer k.mutex.Unlock()
+	k.ctx = ctx
+	k.eof = false
+	k.readErr = nil
+}
+
+func (k *Keys) inputContext() context.Context {
+	k.mutex.RLock()
+	defer k.mutex.RUnlock()
+	if k.ctx == nil {
+		return context.Background()
+	}
+	return k.ctx
+}
+
+// Normalize a complete leading rune, never a fragment of a terminal read.
+func (k *Keys) convertMetaPrefix() {
+	if k.cfg == nil || !k.cfg.GetBool("convert-meta") || !utf8.FullRune(k.buf) {
+		return
+	}
+	r, size := utf8.DecodeRune(k.buf)
+	if inputrc.IsMeta(r) {
+		prefix := []byte{byte(inputrc.Esc), byte(inputrc.Demeta(r))}
+		k.buf = append(prefix, k.buf[size:]...)
+	}
+}
+
+// Empty reports whether there are no complete keys available to dispatch.
+// An incomplete leading UTF-8 rune must wait for another input read. The main
+// loop also uses this to detect a bare async-refresh wake with no keys.
 func (k *Keys) Empty() bool {
 	k.mutex.RLock()
 	defer k.mutex.RUnlock()
 
-	return len(k.buf) == 0 && len(k.macroKeys) == 0
+	if len(k.buf) > 0 {
+		return !utf8.FullRune(k.buf)
+	}
+	return len(k.macroKeys) == 0
 }
 
 // IsEOF returns true if the input stream has reached the end.

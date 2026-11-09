@@ -8,8 +8,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/rivo/uniseg"
-
 	"github.com/reeflective/readline/inputrc"
 	"github.com/reeflective/readline/internal/color"
 	"github.com/reeflective/readline/internal/completion"
@@ -445,8 +443,10 @@ func (rl *Shell) selfInsert() {
 	var length int
 
 	if rl.Config.GetBool("output-meta") && key[0] != inputrc.Esc {
-		quoted = append(quoted, key[0])
-		length = uniseg.StringWidth(string(quoted))
+		quoted = append(quoted, key...)
+		// Cursor positions count runes, not terminal cells. Keep every rune
+		// of a grapheme cluster, including combining characters.
+		length = len(quoted)
 	} else {
 		quoted, length = strutil.Quote(key[0])
 	}

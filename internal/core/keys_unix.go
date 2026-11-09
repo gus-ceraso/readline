@@ -3,10 +3,12 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -16,17 +18,23 @@ import (
 // GetCursorPos returns the current cursor position in the terminal.
 // It is safe to call this function even if the shell is reading input.
 func (k *Keys) GetCursorPos() (x, y int) {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || k.cursorUnsupported || k.inputContext().Err() != nil {
 		return -1, -1
 	}
-
-	disable := func() (int, int) {
-		os.Stderr.WriteString("\r\ngetCursorPos() not supported by terminal emulator, disabling....\r\n")
-		return -1, -1
-	}
-
+	queryCtx, cancel := context.WithTimeout(k.inputContext(), time.Second)
+	defer cancel()
+	stopWake := context.AfterFunc(queryCtx, k.RequestRefresh)
+	defer stopWake()
 	var cursor, pending []byte
 	var match [][]string
+	disable := func() (int, int) {
+		k.QueueInput(pending)
+		if k.inputContext().Err() == nil {
+			k.cursorUnsupported = true
+			os.Stderr.WriteString("\r\nterminal did not answer cursor-position query; disabling cursor probing\r\n")
+		}
+		return -1, -1
+	}
 
 	// Flush any buffered frame output first: the cursor position we are about
 	// to query is only correct once the prompt printed so far is actually on
@@ -44,11 +52,18 @@ func (k *Keys) GetCursorPos() (x, y int) {
 	for {
 		switch {
 		case k.waiting, k.reading:
-			cursor = <-k.cursor
+			select {
+			case cursor = <-k.cursor:
+			case <-queryCtx.Done():
+				return disable()
+			}
 		default:
 			buf := make([]byte, keyScanBufSize)
 
-			read, err := os.Stdin.Read(buf)
+			read, err := k.readStdinContext(buf, queryCtx)
+			if errors.Is(err, errInputWake) {
+				continue
+			}
 			if err != nil {
 				return disable()
 			}
@@ -106,7 +121,11 @@ func (k *Keys) readInputFiltered() (keys []byte, err error) {
 	cursor, keys := k.extractCursorPos(buf[:read])
 
 	if len(cursor) > 0 {
-		k.cursor <- cursor
+		// A late report must not block input when no query is waiting.
+		select {
+		case k.cursor <- cursor:
+		default:
+		}
 	}
 
 	return keys, nil
@@ -114,34 +133,55 @@ func (k *Keys) readInputFiltered() (keys []byte, err error) {
 
 // readStdin reads one chunk of input, but first waits (via poll) for stdin to
 // become readable OR for an async refresh to be requested with RequestRefresh.
-// On a refresh request it returns errInputWake with no data. If wake support is
-// unavailable (no pipe, or Stdin exposes no pollable fd) it falls back to a
-// plain blocking read, so input always works.
+// On a refresh request it returns errInputWake with no data. Without a wake
+// pipe, a bounded poll still observes cancellation. A non-file Stdin reader
+// must provide its own cancellation support; it is read directly.
 func (k *Keys) readStdin(buf []byte) (int, error) {
+	return k.readStdinContext(buf, k.inputContext())
+}
+
+func (k *Keys) readStdinContext(buf []byte, ctx context.Context) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	k.wakeMu.Lock()
 	ready := k.wakeReady
 	wakeR := k.wakeR
 	k.wakeMu.Unlock()
 
 	fd, ok := stdinFd()
-	if !ok || !ready {
+	if !ok {
 		return Stdin.Read(buf)
 	}
 
 	for {
-		fds := []unix.PollFd{
-			{Fd: int32(fd), Events: unix.POLLIN},    //nolint:gosec // G115: OS file descriptors are small non-negative ints.
-			{Fd: int32(wakeR), Events: unix.POLLIN}, //nolint:gosec // G115: OS file descriptors are small non-negative ints.
+		if err := ctx.Err(); err != nil {
+			return 0, err
 		}
-
-		if _, err := unix.Poll(fds, -1); err != nil {
+		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		timeout := 50 // Also supports cancellable reads without a wake pipe.
+		if ready {
+			fds = append(fds, unix.PollFd{Fd: int32(wakeR), Events: unix.POLLIN})
+			timeout = -1
+		}
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := max(1, int((time.Until(deadline)+time.Millisecond-1)/time.Millisecond))
+			if timeout < 0 || remaining < timeout {
+				timeout = remaining
+			}
+		}
+		if _, err := unix.Poll(fds, timeout); err != nil {
 			if errors.Is(err, unix.EINTR) {
 				continue
 			}
 
-			// Polling failed (e.g. an fd type without poll support):
-			// fall back to a plain blocking read.
-			return Stdin.Read(buf)
+			return 0, err
+		}
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if fds[0].Revents&unix.POLLNVAL != 0 {
+			return 0, unix.EBADF
 		}
 
 		// Real input takes priority, so a coincident wake never delays a
@@ -150,7 +190,7 @@ func (k *Keys) readStdin(buf []byte) (int, error) {
 			return Stdin.Read(buf)
 		}
 
-		if fds[1].Revents&unix.POLLIN != 0 {
+		if ready && fds[1].Revents&unix.POLLIN != 0 {
 			k.drainWake()
 			return 0, errInputWake
 		}

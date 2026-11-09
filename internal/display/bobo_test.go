@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/hinshun/vt10x"
 )
 
 func (c *console) rawOutput() string {
@@ -75,6 +78,53 @@ func TestAltBackspaceDeletesPreviousWord(t *testing.T) {
 			c.send("one two" + key + "three\r")
 			c.waitForScreen("[LINE:one three]")
 		})
+	}
+}
+
+func TestReadlineContextCancelsCursorQuery(t *testing.T) {
+	c := startConsole(t, consoleConfig{
+		prompt: "> ", cols: 60, rows: 10, bobo: true, contextMS: 100,
+		probeReply: func(vt10x.Cursor) string { return "" },
+	})
+	c.waitForScreen("[ERR:context deadline exceeded]")
+}
+
+func TestReadlineContextCancelsUnfinishedPaste(t *testing.T) {
+	c := startConsole(t, consoleConfig{
+		prompt: "> ", cols: 60, rows: 10, bobo: true, contextMS: 500,
+	})
+	c.waitForScreen("> ")
+	c.send("\x1b[200~unfinished paste")
+	c.waitForScreen("[ERR:context deadline exceeded]")
+}
+
+func TestUTF8AcrossTerminalReads(t *testing.T) {
+	for _, text := range []string{"世", "é"} {
+		for split := 1; split < len(text); split++ {
+			t.Run(fmt.Sprintf("%s/%d", text, split), func(t *testing.T) {
+				c := startConsole(t, consoleConfig{prompt: "> ", cols: 60, rows: 10, bobo: true})
+				c.waitForScreen("> ")
+				c.send(text[:split])
+				time.Sleep(20 * time.Millisecond)
+				c.send(text[split:] + "\r")
+				c.waitForScreen("[LINE:" + text + "]")
+			})
+		}
+	}
+}
+
+func TestAccentedAndCombiningInput(t *testing.T) {
+	c := startConsole(t, consoleConfig{prompt: "> ", cols: 60, rows: 10, bobo: true})
+	c.waitForScreen("> ")
+	text := "café ação e\u0301cole"
+	c.send(text + "\r")
+	// The VT emulator may compose combining glyphs; assert exact returned bytes.
+	deadline := time.Now().Add(screenWaitTimeout)
+	for !strings.Contains(c.rawOutput(), "[LINE:"+text+"]") {
+		if time.Now().After(deadline) {
+			t.Fatalf("Unicode input corrupted: %q", c.rawOutput())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

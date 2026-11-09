@@ -78,6 +78,8 @@ func runPTYChild() {
 		rl.Config.Set("cache-cursor-position", true)
 		rl.Config.Set("preserve-cursor", true)
 		rl.Config.Set("comment-begin", "")
+		rl.Config.Set("convert-meta", false)
+		rl.Config.Set("output-meta", true)
 		rl.Config.Set("multiline-column-custom", "> ")
 		rl.Config.Set("enable-bracketed-paste", true)
 		rl.Prompt.Secondary(func() string { return "> " })
@@ -177,7 +179,13 @@ func runPTYChild() {
 		rl.Prompt.Right(func() string { return rp })
 	}
 
-	line, err := rl.Readline()
+	ctx := context.Background()
+	if ms, err := strconv.Atoi(os.Getenv("READLINE_PTY_CONTEXT_MS")); err == nil && ms > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(ms)*time.Millisecond)
+		defer cancel()
+	}
+	line, err := rl.ReadlineContext(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stdout, "\r\n[ERR:%s]\r\n", err)
 		os.Exit(0)
@@ -243,6 +251,7 @@ type consoleConfig struct {
 	probeReply      func(vt10x.Cursor) string
 	bobo            bool
 	beforeReadError bool
+	contextMS       int
 }
 
 // newConsole spawns the child shell under a PTY of the given size, with the
@@ -275,6 +284,9 @@ func startConsole(t *testing.T, cfg consoleConfig) *console {
 	}
 	if cfg.beforeReadError {
 		cmd.Env = append(cmd.Env, "READLINE_PTY_BEFORE_READ_ERROR=1")
+	}
+	if cfg.contextMS > 0 {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("READLINE_PTY_CONTEXT_MS=%d", cfg.contextMS))
 	}
 
 	if cfg.hintProvider {

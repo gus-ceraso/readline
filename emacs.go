@@ -474,6 +474,14 @@ func (rl *Shell) bracketedPasteBegin() {
 			continue
 		}
 
+		// Raw mode disables ISIG: a physical Ctrl+C is a byte here, not a
+		// process signal. Apps opting into interruption must not trap it in
+		// an unfinished paste or require the closing delimiter to arrive.
+		if key == 0x03 && rl.Config.GetBool("interrupt-bracketed-paste") {
+			rl.Display.AcceptLine()
+			rl.History.Accept(false, false, ErrInterrupt)
+			return
+		}
 		sequence = append(sequence, key)
 
 		if len(sequence) >= 6 && slices.Equal(sequence[len(sequence)-6:], []byte{'\x1b', '[', '2', '0', '1', '~'}) {

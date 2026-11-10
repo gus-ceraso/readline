@@ -80,6 +80,7 @@ func runPTYChild() {
 		rl.Config.Set("comment-begin", "")
 		rl.Config.Set("convert-meta", false)
 		rl.Config.Set("output-meta", true)
+		rl.Config.Set("interrupt-bracketed-paste", true)
 		rl.Config.Set("multiline-column-custom", "> ")
 		rl.Config.Set("enable-bracketed-paste", true)
 		rl.Prompt.Secondary(func() string { return "> " })

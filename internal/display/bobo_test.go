@@ -89,6 +89,28 @@ func TestReadlineContextCancelsCursorQuery(t *testing.T) {
 	c.waitForScreen("[ERR:context deadline exceeded]")
 }
 
+func TestKeyboardCtrlCCancelsUnfinishedPaste(t *testing.T) {
+	c := startConsole(t, consoleConfig{prompt: "> ", cols: 60, rows: 10, bobo: true})
+	c.waitForScreen("> ")
+	c.send("draft\x1b[200~unfinished paste")
+	time.Sleep(20 * time.Millisecond)
+	c.send("\x03") // An input byte in raw mode, not a process SIGINT.
+	c.waitForScreen("[ERR:interrupt]")
+}
+
+func TestPasteCtrlCRemainsLiteralWithoutOptIn(t *testing.T) {
+	c := startConsole(t, consoleConfig{prompt: "> ", cols: 60, rows: 10})
+	c.waitForScreen("> ")
+	c.send("\x1b[200~one\x03two\x1b[201~\r")
+	deadline := time.Now().Add(screenWaitTimeout)
+	for !strings.Contains(c.rawOutput(), "[LINE:one\x03two]") {
+		if time.Now().After(deadline) {
+			t.Fatalf("default paste behavior changed: %q", c.rawOutput())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func TestReadlineContextCancelsUnfinishedPaste(t *testing.T) {
 	c := startConsole(t, consoleConfig{
 		prompt: "> ", cols: 60, rows: 10, bobo: true, contextMS: 500,

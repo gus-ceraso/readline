@@ -30,6 +30,10 @@ rewriting the library's internal imports and consumers' imports.
   including cursor queries and unfinished bracketed paste, restoring terminal
   state before returning. Cursor queries also have a bounded timeout and retain
   typeahead if a terminal does not answer.
+- The opt-in `interrupt-bracketed-paste` setting makes a Ctrl+C input byte
+  abort the paste immediately with `ErrInterrupt`, without waiting for a closing
+  delimiter. This covers keyboard interruption in raw mode, where ISIG is off
+  and no SIGINT is generated. By default Ctrl+C inside pasted text stays literal.
 - Incomplete UTF-8 input waits for subsequent reads, including bytes supplied
   through `Keys.QueueInput`. Meta conversion runs only on complete leading
   runes, not arbitrary read chunks. With `output-meta=true`, insertion retains
@@ -55,7 +59,8 @@ rewriting the library's internal imports and consumers' imports.
 Run `go test -race ./...` and `go vet ./...` in this repository. Regression tests
 cover disabled comment highlighting, raw input queueing, cursor preservation,
 position caching, custom multiline markers after wrapping, and the editor-thread
-callback, alongside upstream's tests.
+callback, plus keyboard Ctrl+C during unfinished paste and the default literal
+paste behavior, alongside upstream's tests.
 
 Bobo's own tests additionally exercise subprocesses, real Linux PTYs, and a
 terminal emulator, including terminal resize, DSR/typeahead handling, and cooked
